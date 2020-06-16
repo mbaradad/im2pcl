@@ -4,7 +4,7 @@ Official PyTorch implementation of **Height and Uprightness Invariance for 3D Pr
 - [Paper](http://openaccess.thecvf.com/content_CVPR_2020/html/Baradad_Height_and_Uprightness_Invariance_for_3D_Prediction_From_a_Single_CVPR_2020_paper.html)
 
 <p align="center">
-  <img width="460" height="300" src="https://i.imgur.com/z4OJ1qQ.gif">
+  <img width="460" src="https://github.com/mbaradad/im2pcl/blob/master/assets/teaser.gif?raw=true">
 </p>
 
 The proposed model allows obtaining pointclouds at scale in a canonical pose for arbitrary images in the wild. Compared to other depth models, ours jointly estimates 
