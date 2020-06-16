@@ -1,7 +1,5 @@
 # Im2pcl 
-Official PyTorch implementation of **Height and Uprightness Invariance for 3D Prediction from a Single View (CVPR 2020)**
-
-- [Paper](http://openaccess.thecvf.com/content_CVPR_2020/html/Baradad_Height_and_Uprightness_Invariance_for_3D_Prediction_From_a_Single_CVPR_2020_paper.html)
+Official PyTorch implementation of [**Height and Uprightness Invariance for 3D Prediction from a Single View (CVPR 2020)**](http://openaccess.thecvf.com/content_CVPR_2020/html/Baradad_Height_and_Uprightness_Invariance_for_3D_Prediction_From_a_Single_CVPR_2020_paper.html)
 
 <p align="center">
   <img width="460" src="https://github.com/mbaradad/im2pcl/blob/master/assets/teaser.gif?raw=true">
@@ -12,7 +10,7 @@ camera intrinsics and extrinsics. The provided models were trained using the Sca
 
 For images with other content types, such as outdoors or indoors with people covering a large portion of the image, we do not recommend using our pretrained models.
 
-###Requirements
+### Requirements
 
 - Python 3.7.4
 - PyTorch 1.5 (other versions are likely to work, but have not been tested)
@@ -24,7 +22,7 @@ pip install -r requirements.txt
 conda install -c conda-forge opencv
 ```
 
-#Testing
+# Testing
 To test the provided checkpoints download and unzip them from [here](https://drive.google.com/drive/folders/1mRPd6KkCiiv1whwoP5o47d7vk63Ofxxl?usp=sharing):
 
 Then, to test a single image, run a visdom server (for pointcloud visualizatioons) and use the command:
@@ -37,7 +35,7 @@ you will need to download SUN360 or SUNRGBD (which contains NYUv2 as a subset), 
 Then, you can use the --dataset argument to test images on these datasets.
 
 
-#Training
+# Training
 To train the model from scratch, you will need to download [Scannet](http://www.scan-net.org/) and expand the dataset (produce images and depth maps) using Scannet scripts or our expanding script in datasets/scannet_utils/expand_dataset.py. 
 Finally, edit paths.py to reflect your paths configuration.
 
