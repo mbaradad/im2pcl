@@ -14,7 +14,7 @@ import tempfile
 PYCHARM_VISDOM = 'PYCHARM_RUN'
 
 
-def instantiante_visdom(port, server='http://localhost'):
+def instantiate_visdom(port, server='http://localhost'):
   return visdom.Visdom(port=port, server=server, use_incoming_socket=True)
 
 
@@ -23,7 +23,7 @@ if not 'NO_VISDOM' in os.environ.keys():
     warnings.simplefilter("ignore")
     import visdom
 
-    global_vis = instantiante_visdom(12890, server='http://visiongpu09')
+    global_vis = instantiate_visdom(12890, server='http://visiongpu09')
 
 
 def visdom_dict(dict_to_plot, title=None, window=None, env=PYCHARM_VISDOM, vis=None, simplify_floats=True):

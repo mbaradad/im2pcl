@@ -1,7 +1,6 @@
-from convolutional_head.eval.metrics import compute_depth_metrics
-from convolutional_head.structure_regression_train import *
+from train import *
 from datasets.SUN360_rendered_dataset import SUN360RenderedDataset
-
+from tqdm import tqdm
 
 def create_parser():
   parser = argparse.ArgumentParser(description='Depth from single',
@@ -84,7 +83,7 @@ def main():
   # create model
   print("=> creating model")
   # input: image, output: depth, y, n_y and f, height, pitch
-  assert (len(args.imgs) != 0) + (len(args.img_folder) != 0) <= 1, 'Either img_list or img_folder should be active!'
+  assert (len(args.imgs) != 0) + (len(args.img_folder) != 0) + (len(args.dataset) != 0) == 1, 'You should provide only one of imts, img_folder or dataset argument!'
   if len(args.imgs) != 0:
     dataset_test = FakeMissingDepthGt(ImageFolderCenterCroppLoader([args.img], height=training_args.input_height, width=training_args.input_width))
   elif len(args.img_folder) != 0:
@@ -92,7 +91,7 @@ def main():
   elif args.dataset == 'sun360':
     dataset_test = FakeMissingDepthGt(SUN360RenderedDataset(height=training_args.input_height, width=training_args.input_width))
   else:
-    common_train_val_args = {'split': args.split,
+    common_train_val_args = {'split': 'val',
                              'height': training_args.input_height,
                              'width': training_args.input_width,
                              'use_sunrgbd': args.dataset == 'sunrgbd',
@@ -259,7 +258,6 @@ def main():
 
           np.savez_compressed(output_dir + '/' + paths[b_i].replace('/', '_').replace('.jpg', ''), **things_to_save)
 
-    # write_text_file_lines(samples_camera_metrics_list, args.save_path + '_{}_{}_results.csv'.format(args.dataset, args.split))
   if not results_file is None:
     results_file.close()
 

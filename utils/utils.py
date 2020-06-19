@@ -261,3 +261,27 @@ def zrotation_rad(th, four_dims=False):
   else:
     return np.array([[c, -s, 0, 0], [s, c, 0, 0], [0, 0, 1, 0], [0, 0, 0, 1]])
 
+
+class ImageFolderCenterCroppLoader():
+  def __init__(self, folder_or_img_list, height, width, extension='jpg'):
+    if type(folder_or_img_list) == list:
+      self.img_list = folder_or_img_list
+    elif os.path.isdir(folder_or_img_list):
+      self.img_list = [folder_or_img_list + '/' + k for k in os.listdir(folder_or_img_list) if k.endswith(extension)]
+    self.img_list.sort()
+    self.height = height
+    self.width = width
+
+  def __len__(self):
+    return len(self.img_list)
+
+  def __getitem__(self, item):
+    image = cv2_imread(self.img_list[item])
+    img = best_centercrop_image(image, self.height, self.width)
+    to_return = {'image': np.array(img / 255.0, dtype='float32'),
+                 'path': self.img_list[item].split('/')[-1],
+                 'full_path': self.img_list[item]}
+    return to_return
+
+
+

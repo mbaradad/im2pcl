@@ -20,9 +20,13 @@ For images with other content types, such as outdoors or indoors with people cov
 To install the required Python dependencies, we recommend creating a new conda environment and running:
 
 ```
+conda create --name im2pcl python=3.7.4
+source activate im2pcl
 pip install -r requirements.txt
 conda install -c conda-forge opencv
 ```
+
+With visdom, you'll be able to
 
 #Testing
 To test the provided checkpoints download and unzip them from [here](https://drive.google.com/drive/folders/1mRPd6KkCiiv1whwoP5o47d7vk63Ofxxl?usp=sharing):
