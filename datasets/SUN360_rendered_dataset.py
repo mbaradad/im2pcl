@@ -1,9 +1,8 @@
+from datasets.scannet_world_dataset import POSE_STATS_PATH
 from tqdm import tqdm
 
-from data.matterport_data.equirectangular_utils import get_pano_to_image_coords
-from data.scannet.scannet_world_dataset import POSE_STATS_PATH
-from my_python_utils.common_utils import *
 from paths import *
+from utils.geom_utils import *
 
 SUN360_IMAGES_PATH = SUN360_PATH + '/images/pano9104x4552'
 SUN360_INDOOR_URLS_FOLDER = SUN360_PATH + '/www/Images/SUN360_urls_9104x4552/indoor'
@@ -24,7 +23,7 @@ class SUN360RenderedDataset():
     self.sun360_dataset = SUN360Dataset()
     all_pano_images = self.sun360_dataset.get_all_pano_images()
     self.all_renders = self.get_all_renders()
-    assert len(self.all_renders) == RENDERS_PER_FILE * len(all_pano_images), 'Not all renders completed or not found'
+    assert len(self.all_renders) == RENDERS_PER_FILE * len(all_pano_images), 'Not all renders completed or not found. Run python datasets/SUN360_rendered_dataset.py to generate perspective renderings from SUN360!'
     return
 
   def get_all_renders(self):
@@ -33,6 +32,7 @@ class SUN360RenderedDataset():
       all_rendered_examples = read_text_file_lines(all_rendered_examples_file)
     else:
       all_rendered_examples = find_all_files_recursively(COMPUTED_RESULTS_PATH, prepend_path=True, extension='.jpg')
+      len(self.all_renders) == RENDERS_PER_FILE * len(all_rendered_examples)
       write_text_file_lines(all_rendered_examples, all_rendered_examples_file)
     return all_rendered_examples
 
@@ -88,7 +88,7 @@ class SUN360Dataset():
         all_scene_files = [SUN360_IMAGES_PATH + '/' + k.split('/')[-1] for k in all_scene_files]
         all_vaexamples.extend(zip(all_scene_files, [type] * len(all_scene_files)))
       all_valid_examples = []
-      print("Generating all pano images!")
+      print("Parsing all available pano images. This will only be run the first time!")
       for example in tqdm(all_vaexamples):
         if os.path.exists(example[0]):
           all_valid_examples.append(example)
@@ -155,6 +155,3 @@ def generate_images():
 
 if __name__ == '__main__':
   generate_images()
-  # dataset = SUN360RenderedDataset()
-  # for i, batch in enumerate(dataset):
-  #  imshow(batch[0])

@@ -1,27 +1,21 @@
 from __future__ import division
+import sys
+sys.path.append('.')
 
 import math
 
-import numpy as np
-import torch
-from torch.autograd import Variable
 from kornia import pixel2cam as k_pixel2cam
+from kornia import create_meshgrid, convert_points_to_homogeneous
+
+from scipy.linalg import lstsq
+from torch.autograd import Variable
+
+from utils.utils import *
 
 # Borrowed from: https://github.com/ClementPinard/SfmLearner-Pytorch
 pixel_coords = None
 pixel_coords_cpu = None
 pixel_coords_cuda = None
-
-
-def get_id_grid(depth_image, new_grid=False):
-  global pixel_coords, pixel_coords_cpu, pixel_coords_cuda
-  b, h, w = depth_image.size()
-  if (pixel_coords is None) or pixel_coords.size(2) < h or new_grid:
-    set_id_grid(depth_image)
-  if depth_image.is_cuda:
-    return pixel_coords_cuda
-  else:
-    return pixel_coords_cpu
 
 
 def get_flow(new_coordinates):
@@ -45,20 +39,18 @@ def get_scaled_id_grid(depth_image):
   coords = torch.cat([X_norm, Y_norm])[None, :, :, :]
   return coords.transpose(1, 3).transpose(1, 2)
 
-
-def set_id_grid(depth):
-  # the pixel coords is a HxW grid, where each element contains the position as (x,y,1)
+def set_id_grid(height, width, to_cuda=False):
   global pixel_coords_cpu, pixel_coords_cuda
-  b, h, w = depth.size()
-  i_range = Variable(torch.arange(0, h).view(1, h, 1).expand(1, h, w)).type_as(depth)  # [1, H, W]
-  j_range = Variable(torch.arange(0, w).view(1, 1, w).expand(1, h, w)).type_as(depth)  # [1, H, W]
-  ones = Variable(torch.ones(1, h, w)).type_as(depth)
 
-  pixel_coords = torch.stack((j_range, i_range, ones), dim=1)  # [1, 3, H, W]
-  if depth.is_cuda:
-    pixel_coords_cuda = pixel_coords.cuda()
+  pixel_grid = get_id_grid(height, width)
+  if to_cuda:
+    pixel_coords_cuda = pixel_grid.cuda()
   else:
-    pixel_coords_cpu = pixel_coords.cpu()
+    pixel_coords_cpu = pixel_grid.cpu()
+
+def get_id_grid(height, width):
+  grid = create_meshgrid(height, width, normalized_coordinates=False)  # 1xHxWx2
+  return convert_points_to_homogeneous(grid)
 
 
 def check_sizes(input, input_name, expected):
@@ -69,15 +61,18 @@ def check_sizes(input, input_name, expected):
   assert (all(condition)), "wrong size for {}, expected {}, got  {}".format(input_name, 'x'.join(expected), list(input.size()))
 
 
-def get_id_grid(depth_image, new_grid=False):
-  global pixel_coords, pixel_coords_cpu, pixel_coords_cuda
-  b, h, w = depth_image.size()
-  if (pixel_coords is None) or pixel_coords.size(2) < h or new_grid:
-    set_id_grid(depth_image)
-  if depth_image.is_cuda:
-    return pixel_coords_cuda
-  else:
-    return pixel_coords_cpu
+
+def make_4x4_K(K):
+  batch_size = K.shape[0]
+  zeros = torch.zeros((batch_size, 3, 1))
+  with_1 = torch.Tensor(np.array((0, 0, 0, 1)))[None, :None:].expand(batch_size, 1, 4)
+  if K.is_cuda:
+    zeros = zeros.cuda()
+    with_1 = with_1.cuda()
+  K = torch.cat((K, zeros), axis=2)
+  K = torch.cat((K, with_1), axis=1)
+
+  return K
 
 
 def pixel2cam(depth, K):
@@ -104,9 +99,8 @@ def pixel2cam(depth, K):
     pixel_coords = pixel_coords_cpu
 
   batch_size = depth.shape[0]
-  pcl = k_pixel2cam(depth[:,None,:,:], intrinsics_inv, pixel_coords.expand(batch_size, -1, -1, -1))
-  return pcl.permute(0,3,1,2)
-
+  pcl = k_pixel2cam(depth[:, None, :, :], intrinsics_inv, pixel_coords.expand(batch_size, -1, -1, -1))
+  return pcl.permute(0, 3, 1, 2)
 
 
 def mat2euler_rotation(R):
@@ -292,6 +286,41 @@ def inverse_warp(img, depth, pose, intrinsics, intrinsics_inv, rotation_mode='eu
     return projected_img
 
 
+# From sfmlearner pytorch
+def cam2pixel(cam_coords, proj_c2p_rot, proj_c2p_tr, padding_mode):
+  """Transform coordinates in the camera frame to the pixel frame.
+  Args:
+    cam_coords: pixel coordinates defined in the first camera coordinates system -- [B, 4, H, W]
+    proj_c2p_rot: rotation matrix of cameras -- [B, 3, 4]
+    proj_c2p_tr: translation vectors of cameras -- [B, 3, 1]
+  Returns:
+    array of [-1,1] coordinates -- [B, 2, H, W]
+  """
+  b, _, h, w = cam_coords.size()
+  cam_coords_flat = cam_coords.view(b, 3, -1)  # [B, 3, H*W]
+  if proj_c2p_rot is not None:
+    pcoords = proj_c2p_rot.bmm(cam_coords_flat)
+  else:
+    pcoords = cam_coords_flat
+
+  if proj_c2p_tr is not None:
+    pcoords = pcoords + proj_c2p_tr  # [B, 3, H*W]
+  X = pcoords[:, 0]
+  Y = pcoords[:, 1]
+  Z = pcoords[:, 2].clamp(min=1e-8)
+
+  X_norm = 2 * (X / Z) / (w - 1) - 1  # Normalized, -1 if on extreme left, 1 if on extreme right (x = w-1) [B, H*W]
+  Y_norm = 2 * (Y / Z) / (h - 1) - 1  # Idem [B, H*W]
+  if padding_mode == 'zeros':
+    X_mask = ((X_norm > 1) + (X_norm < -1)).detach()
+    X_norm[X_mask] = 2  # make sure that no point in warped image is a combinaison of im and gray
+    Y_mask = ((Y_norm > 1) + (Y_norm < -1)).detach()
+    Y_norm[Y_mask] = 2
+
+  pixel_coords = torch.stack([X_norm, Y_norm], dim=2)  # [B, H*W, 2]
+  return pixel_coords.view(b, h, w, 2)
+
+
 def inverse_warp_camera_coords(img, pcoords, pose_mat, intrinsics, padding_mode='zeros', rotation_mode='euler'):
   b, _, h, w = pcoords.size()
 
@@ -460,3 +489,63 @@ def fov_x_to_intrinsic_rad(fov_x_rad, width, height, return_inverse=True):
       return intrinsics, np.linalg.inv(intrinsics)
   else:
     return intrinsics
+
+
+def rotation_matrix_two_vectors(a, b):
+  # returns r st np.matmul(r, a) = b
+  v = np.cross(a, b)
+  c = np.dot(a, b)
+  s = np.linalg.norm(v)
+  I = np.identity(3)
+  vXStr = '{} {} {}; {} {} {}; {} {} {}'.format(0, -v[2], v[1], v[2], 0, -v[0], -v[1], v[0], 0)
+  k = np.matrix(vXStr)
+  r = I + k + np.matmul(k, k) * ((1 - c) / (s ** 2))
+  return np.array(r)
+
+
+def fit_plane_np(data_points, robust=False):
+  assert data_points.shape[0] == 3
+  X = data_points.transpose()
+  y = -1 * np.ones(data_points.shape[1])
+  if robust:
+    # The following is the as the least squares solution:
+    # linear = linear_model.LinearRegression(fit_intercept=False)
+    # linear.fit(X,y)
+    # C2 = linear.coef_
+
+    # but we use ransac, with the same estimator
+    from sklearn import linear_model
+
+    base_estimator = linear_model.LinearRegression(fit_intercept=False)
+    ransac = linear_model.RANSACRegressor(base_estimator=base_estimator, min_samples=50, )
+    ransac.fit(X, y)
+    C0 = base_estimator.fit(X, y).coef_
+    C = ransac.estimator_.coef_
+  else:
+    C, _, _, _ = lstsq(X, y)
+  # The new z will be the z where the original directions intersect the plane C
+  p_n_0 = np.array((C[0], C[1], C[2], 1))
+  return p_n_0
+
+
+def get_pano_to_image_coords(yaw_rad, pitch_rad, fov_v, height, width, pano_shape, roll_rad=0):
+  base_height, base_width = pano_shape
+  m = np.dot(np.dot(yrotation_rad(yaw_rad), xrotation_rad(pitch_rad)), zrotation_rad(-1 * roll_rad))
+  fov_h = fov_v * width / height
+  DI = np.ones((height * width, 3), np.int)
+  trans = np.array([[2. * np.tan(fov_h / 2) / float(width), 0., -np.tan(fov_h / 2)],
+                    [0., -2. * np.tan(fov_v / 2) / float(height), np.tan(fov_v / 2)]])
+  xx, yy = np.meshgrid(np.arange(width), np.arange(height))
+  DI[:, 0] = xx.reshape(height * width)
+  DI[:, 1] = yy.reshape(height * width)
+  v = np.ones((height * width, 3), np.float)
+  v[:, :2] = np.dot(DI, trans.T)
+  v = np.dot(v, m.T)
+  diag = np.sqrt(v[:, 2] ** 2 + v[:, 0] ** 2)
+  theta = np.pi / 2 - np.arctan2(v[:, 1], diag)
+  phi = np.arctan2(v[:, 0], v[:, 2]) + np.pi
+  ey = np.rint(theta * base_height / np.pi).astype(np.int)
+  ex = np.rint(phi * base_width / (2 * np.pi)).astype(np.int)
+  ex[ex >= base_width] = base_width - 1
+  ey[ey >= base_height] = base_height - 1
+  return DI, np.array((ey, ex)), height, width

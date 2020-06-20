@@ -6,17 +6,20 @@ os.environ["MKL_NUM_THREADS"] = "6"  # export MKL_NUM_THREADS=6
 os.environ["VECLIB_MAXIMUM_THREADS"] = "4"  # export VECLIB_MAXIMUM_THREADS=4
 os.environ["NUMEXPR_NUM_THREADS"] = "6"  # export NUMEXPR_NUM_THREADS=6
 
-from utils.geom_utils import compute_normals_from_closest_image_coords, compute_normals_from_pcl, pixel2cam
 from torch.utils.data import Dataset
-from my_python_utils.common_utils import *
 from tqdm import tqdm
-from transforms3d.euler import mat2euler, euler2mat
 from paths import *
+
+from utils.visdom_utils import *
+from utils.geom_utils import *
+
+from transforms3d.euler import mat2euler, euler2mat
 
 TRAIN_PATH = '{}/scans'.format(SCANNET_PATH)
 TEST_PATH = '{}/scans_test'.format(SCANNET_PATH)
 SCANNET_CODE_PATH = '{}/code'.format(SCANNET_PATH)
 POSE_STATS_PATH = os.path.dirname(__file__) + '/../assets/pose_stats.pckl'
+
 
 def color_to_depth_path(color_path):
   return color_path.replace('/color/', '/depth/').replace('.jpg', '.png')
@@ -113,6 +116,8 @@ class ScannetWorld(Dataset):
     if os.path.exists(all_examples_file):
       return read_text_file_lines(all_examples_file, read_n_samples)
     else:
+      #Creating file with all available samples
+      print("Creating a text file with all available samples. This can take a while.")
       all_scenes = os.listdir(TRAIN_PATH)
 
       def process_single(scene):
@@ -311,17 +316,17 @@ class ScannetWorld(Dataset):
 
       valid_depth_mask = depth != 0
 
-      canonical_annotated_gt_extrinsics = np.matmul(rotation_annotated, pcl.reshape((3, -1))).reshape(pcl.shape)
+      world_annotated_gt_extrinsics = np.matmul(rotation_annotated, pcl.reshape((3, -1))).reshape(pcl.shape)
       floor_mask = labels == self.scannet_floor_id
       if floor_mask.sum() > 100:
-        # camera_height_from_depth_semantics = np.abs(canonical_annotated_gt_extrinsics[1,floor_mask].mean())
-        floor_points = canonical_annotated_gt_extrinsics[:, np.array(floor_mask, dtype='bool')]
-        # to further remove outliers from regions badly annotated,
+        floor_points = world_annotated_gt_extrinsics[:, np.array(floor_mask, dtype='bool')]
+
+        # to further remove outliers from regions badly annotated
         min_floor_height = np.quantile(floor_points[1], 0.3)
         max_floor_height = np.quantile(floor_points[1], 0.95)
         floor_points_good_height = np.logical_and(floor_points[1] > min_floor_height, floor_points[1] < max_floor_height)
         floor_mask[floor_mask] = floor_points_good_height
-        floor_points = canonical_annotated_gt_extrinsics[:, np.array(floor_mask, dtype='bool')]
+        floor_points = world_annotated_gt_extrinsics[:, np.array(floor_mask, dtype='bool')]
         # from all this, select some randomly to be faster when fitting the plane
         final_floor_indices = np.random.randint(0, floor_points.shape[1], 100)
         floor_points = floor_points[:, final_floor_indices]
@@ -331,34 +336,31 @@ class ScannetWorld(Dataset):
         P = P / np.sqrt(P[0] ** 2 + P[1] ** 2 + P[2] ** 2)
 
         R = rotation_matrix_two_vectors(P[:3], np.array((0, -1, 0)))
-        # we also compute
-        # fit plane to points
-        plane_coords, plane_colors = get_plane_pointcloud(plane_params=P, x_extension=(-3, 3), z_extension=(0, 3), n_points=100)
 
         rotation = np.matmul(R, rotation_annotated)
-        canonical_pcl = np.matmul(rotation, pcl.reshape((3, -1))).reshape(pcl.shape)
+        world_pcl = np.matmul(rotation, pcl.reshape((3, -1))).reshape(pcl.shape)
         # just the distance to the plane
         # http://mathworld.wolfram.com/Point-PlaneDistance.html
         camera_height = P[3]
       else:
         rotation = rotation_annotated
         camera_height = camera_height_annotated
-        canonical_pcl = canonical_annotated_gt_extrinsics
+        world_pcl = world_annotated_gt_extrinsics
 
-      canonical_pcl = canonical_pcl - np.array((0, camera_height, 0))[:, None, None]
+      world_pcl = world_pcl - np.array((0, camera_height, 0))[:, None, None]
       if self.knn_normals:
-        canonical_normals_from_knn = np.matmul(rotation, local_normals.reshape((3, -1))).reshape(local_normals.shape)
+        world_normals_from_knn = np.matmul(rotation, local_normals.reshape((3, -1))).reshape(local_normals.shape)
 
-        canonical_normals = canonical_normals_from_knn[None, :, :-1, :-1]
+        world_normals = world_normals_from_knn[None, :, :-1, :-1]
         normals_mask = valid_depth_mask[None, :-1, :-1]
 
       else:
-        canonical_normals, normals_mask = compute_normals_from_closest_image_coords(canonical_pcl[None, :, :, :], mask=valid_depth_mask[None, None, :, :])
+        world_normals, normals_mask = compute_normals_from_closest_image_coords(world_pcl[None, :, :, :], mask=valid_depth_mask[None, None, :, :])
 
       floor_normals_mask = np.array((floor_mask[:-1, :-1] * normals_mask)[0], dtype='bool')
       if floor_normals_mask.sum() > 50:
-        floor_canonical_normals = canonical_normals[0, :, floor_normals_mask]
-        mean_cos_similarity_floor = floor_canonical_normals[:, 1].mean()
+        floor_world_normals = world_normals[0, :, floor_normals_mask]
+        mean_cos_similarity_floor = floor_world_normals[:, 1].mean()
         if mean_cos_similarity_floor < 0.95:
           raise Exception("Too many points on floor with cosine similarity with y axis < 0.9")
 
@@ -372,10 +374,10 @@ class ScannetWorld(Dataset):
                        mask=np.array(valid_depth_mask, dtype='float32'),
                        intrinsics=np.array(intrinsics, dtype='float32'),
                        intrinsics_inv=np.array(intrinsics_inv, dtype='float32'),
-                       canonical_normals=np.array(canonical_normals[0], dtype='float32'),
+                       world_normals=np.array(world_normals[0], dtype='float32'),
                        normals_mask=np.array(normals_mask[0] * 1.0, dtype='float32'),
                        pcl=np.array(pcl, dtype='float32'),
-                       canonical_pcl=np.array(canonical_pcl, dtype='float32'),
+                       world_pcl=np.array(world_pcl, dtype='float32'),
                        params=np.array(params, dtype='float32'),
                        path=color_path,
                        proper_scale=np.array((1), dtype=bool))
@@ -401,11 +403,7 @@ def compute_single_normals_knn(color_path, radius=DEFAULT_NN_RADIUS, max_nn=DEFA
     intrinsics_inv = np.linalg.inv(intrinsics_depth)
     pcl = pixel2cam(torch.FloatTensor(depth[None, :, :]), torch.FloatTensor(intrinsics_inv[None, :, :]))[0]
 
-    # image = cv2_imread(color_path)
-    # image = cv2_resize(image, depth.shape)
-
     viewpoint = np.array((0, 0, 0))
-
     knn_computed_normals = compute_normals_from_pcl(tonumpy(pcl).reshape(3, -1), viewpoint, radius=radius,
                                                     max_nn=max_nn).reshape((3, *pcl.shape[-2:]))
 
@@ -433,18 +431,11 @@ def compute_normals_knn(parallel=True):
   from tqdm import tqdm
 
   from p_tqdm import p_map
-  all_hosts = read_text_file_lines('ansible_tasks/visioncpu')[1:]
-  current_host = get_hostname()
-  try:
-    current_host_index = all_hosts.index(current_host)
-  except:
-    return
-  samples_to_process = missing_samples[current_host_index::len(all_hosts)]
-  random.shuffle(samples_to_process)
+  random.shuffle(missing_samples)
   if parallel:
-    p_map(compute_single_normals_knn, samples_to_process, num_cpus=5)
+    p_map(compute_single_normals_knn, missing_samples, num_cpus=5)
   else:
-    for color_path in tqdm(samples_to_process):
+    for color_path in tqdm(missing_samples):
       compute_single_normals_knn(color_path)
 
 

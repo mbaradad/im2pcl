@@ -1,10 +1,10 @@
 import copy
-
-import torch
+import time
 
 from datasets.scannet_world_dataset import ScannetWorld
 from datasets.sunrgbd_world_dataset import SUNRGBDWorld
-from my_python_utils.common_utils import *
+from utils.geom_utils import *
+
 from paths import *
 
 BASE_CACHE_PATH = CACHE_PATH + '/cached_data'
@@ -212,6 +212,8 @@ class MixedDataset(torch.utils.data.dataset.Dataset):
             pass
       else:
         to_return = dataset.__getitem__(item[1])
+      if len(to_return['normals_mask'].shape) == 3:
+        to_return['normals_mask'] = to_return['normals_mask'][0]
       to_return['dataset'] = dataset_name
       sample_in_fov_range = to_return['params'][0] >= self.ranges['FOV_deg'][0] and \
                             to_return['params'][0] <= self.ranges['FOV_deg'][1]

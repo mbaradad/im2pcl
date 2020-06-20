@@ -1,34 +1,32 @@
-import random
-import warnings
+import sys
+sys.path.append('.')
 
+import tempfile
+import time
+import warnings
+from multiprocessing import Queue, Process
+
+import imageio
 import matplotlib.pyplot as pyplt
 from PIL import Image, ImageDraw
-from utils.utils import *
-from multiprocessing import Queue, Process
-import cv2
-import imageio
 from skvideo.io import FFmpegWriter, FFmpegReader
-import time
-import tempfile
+import math
+
+from utils.utils import *
+import visdom
 
 PYCHARM_VISDOM = 'PYCHARM_RUN'
-
 
 def instantiate_visdom(port, server='http://localhost'):
   return visdom.Visdom(port=port, server=server, use_incoming_socket=True)
 
-
-if not 'NO_VISDOM' in os.environ.keys():
-  with warnings.catch_warnings():
-    warnings.simplefilter("ignore")
-    import visdom
-
-    global_vis = instantiate_visdom(12890, server='http://visiongpu09')
-
+global global_vis
+global_vis = {'vis': None}
 
 def visdom_dict(dict_to_plot, title=None, window=None, env=PYCHARM_VISDOM, vis=None, simplify_floats=True):
+  global global_vis
   if vis is None:
-    vis = global_vis
+    vis = global_vis['vis']
   opts = dict()
   if not title is None:
     opts['title'] = title
@@ -53,13 +51,13 @@ def visdom_default_window_title_and_vis(win, title, vis):
   elif title is None:
     title = str(win)
   if vis is None:
-    vis = global_vis
+    vis = global_vis['vis']
   return win, title, vis
 
 
 def imshow_vis(im, title=None, win=None, env=None, vis=None):
   if vis is None:
-    vis = global_vis
+    vis = global_vis['vis']
   opts = dict()
   win, title, vis = visdom_default_window_title_and_vis(win, title, vis)
 
@@ -82,6 +80,7 @@ def add_axis_to_image(im):
   data = data.reshape(fig.canvas.get_width_height()[::-1] + (3,))
   data = data.transpose((2, 0, 1))
   return data
+
 
 def myimresize(img, target_shape, interpolation_mode=cv2.INTER_NEAREST):
   assert interpolation_mode in [cv2.INTER_NEAREST, cv2.INTER_AREA]
@@ -115,6 +114,7 @@ def scale_image_biggest_dim(im, biggest_dim):
   else:
     im = myimresize(im, target_shape=target_imshape)
   return im
+
 
 def imshow(im, title='none', path=None, biggest_dim=None, normalize_image=True,
            max_batch_display=10, window=None, env=None, fps=10, vis=None,
@@ -177,11 +177,12 @@ def imshow(im, title='none', path=None, biggest_dim=None, normalize_image=True,
   if return_image:
     return im
 
+
 def vidshow_vis(frames, title=None, window=None, env=None, vis=None, biggest_dim=None, fps=10):
   # if it does not work, change the ffmpeg. It was failing using anaconda ffmpeg default video settings,
   # and was switched to the machine ffmpeg.
   if vis is None:
-    vis = global_vis
+    vis = global_vis['vis']
   if frames.shape[1] == 1 or frames.shape[1] == 3:
     frames = frames.transpose(0, 2, 3, 1)
   if frames.shape[-1] == 1:
@@ -203,6 +204,7 @@ def vidshow_vis(frames, title=None, window=None, env=None, vis=None, biggest_dim
   vidshow_file_vis(videofile, title=title, window=window, env=env, vis=vis, fps=fps)
   return videofile
 
+
 def vidshow_file_vis(videofile, title=None, window=None, env=None, vis=None, fps=10):
   # if it fails, check the ffmpeg version.
   # Depending on the ffmpeg version, sometimes it does not work properly.
@@ -212,42 +214,45 @@ def vidshow_file_vis(videofile, title=None, window=None, env=None, vis=None, fps
     opts['caption'] = title
     opts['fps'] = fps
   if vis is None:
-    vis = global_vis
+    vis = global_vis['vis']
   vis.win_exists(title)
   if window is None:
     window = title
   vis.video(videofile=videofile, win=window, opts=opts, env=env)
 
+
 def cv2_imwrite(im, file, normalize=False, jpg_quality=None):
   if len(im.shape) == 3 and im.shape[0] == 3 or im.shape[0] == 4:
     im = im.transpose(1, 2, 0)
   if normalize:
-    im = (im - im.min())/(im.max() - im.min())
-    im = np.array(255.0*im, dtype='uint8')
+    im = (im - im.min()) / (im.max() - im.min())
+    im = np.array(255.0 * im, dtype='uint8')
   if jpg_quality is None:
     # The default jpg quality seems to be 95
     if im.shape[-1] == 3:
-      cv2.imwrite(file, im[:,:,::-1])
+      cv2.imwrite(file, im[:, :, ::-1])
     else:
       raise Exception('Alpha not working correctly')
-      im_reversed = np.concatenate((im[:,:,3:0:-1], im[:,:,-2:-1]), axis=2)
+      im_reversed = np.concatenate((im[:, :, 3:0:-1], im[:, :, -2:-1]), axis=2)
       cv2.imwrite(file, im_reversed)
   else:
-    cv2.imwrite(file, im[:,:,::-1], [int(cv2.IMWRITE_JPEG_QUALITY), jpg_quality])
+    cv2.imwrite(file, im[:, :, ::-1], [int(cv2.IMWRITE_JPEG_QUALITY), jpg_quality])
+
 
 def imshow_matplotlib(im, path):
   cv2_imwrite(im, path)
 
+
 def make_gif(ims, path, fps=None, biggest_dim=None):
   if ims.dtype != 'uint8':
-    ims = np.array(ims*255, dtype='uint8')
-  if ims.shape[1] in [1,3]:
-    ims = ims.transpose((0,2,3,1))
+    ims = np.array(ims * 255, dtype='uint8')
+  if ims.shape[1] in [1, 3]:
+    ims = ims.transpose((0, 2, 3, 1))
   if ims.shape[-1] == 1:
-    ims = np.tile(ims, (1,1,1,3))
+    ims = np.tile(ims, (1, 1, 1, 3))
   with imageio.get_writer(path) as gif_writer:
     for k in range(ims.shape[0]):
-      #imsave(ims[k].mean()
+      # imsave(ims[k].mean()
       if biggest_dim is None:
         actual_im = ims[k]
       else:
@@ -295,6 +300,22 @@ def draw_horizon_line(image, rotation_mat=None, pitch_angle=None, roll_angle=Non
   draw.line((0, start_y, im.size[0], finish_y), fill=color, width=int(math.ceil(height / 100)))
   image_with_line = np.array(im).transpose((2, 0, 1))
   return image_with_line
+
+
+def visdom_histogram(array, win=None, title=None, env=None, vis=None):
+  if env is None:
+    env = PYCHARM_VISDOM
+  if type(array) is list:
+    array = np.array(array)
+  if vis is None:
+    vis = global_vis['vis']
+  array = array.flatten()
+
+  win, title, vis = visdom_default_window_title_and_vis(win, title, vis)
+
+  opt = dict()
+  opt['title'] = title
+  vis.histogram(array, env=env, win=win, opts=opt)
 
 
 def prepare_pointclouds_and_colors(coords, colors, default_color=(0, 0, 0)):
@@ -417,7 +438,7 @@ def show_pointcloud(original_coords, original_colors=None, title='none', win=Non
     }
   }
 
-  global_vis.scatter(plot_coords, env=env, win=win,
+  global_vis['vis'].scatter(plot_coords, env=env, win=win,
                      opts={'webgl': True,
                            'title': title,
                            'name': 'scatter',

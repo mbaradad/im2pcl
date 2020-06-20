@@ -1,8 +1,10 @@
 import sys
+
 sys.path.append('.')
 
-from utils.geom_utils import *
 from utils.visdom_utils import *
+
+from utils.geom_utils import *
 from utils.logging_utils import *
 import time
 
@@ -20,11 +22,12 @@ from tensorboardX import SummaryWriter
 import socket
 import yaml
 
-global args
+global args, global_vis
 
 from losses import *
 from datasets.mixed_dataset import MixedDataset, create_params_dict
 from models.hourglass import HourglassModelWithRegressors as CoordConvHourglassModelWithRegressors
+
 
 def create_parser():
   parser = argparse.ArgumentParser(description='Depth from single image', formatter_class=argparse.ArgumentDefaultsHelpFormatter)
@@ -37,10 +40,11 @@ def create_parser():
   parser.add_argument('--input-height', default=192, type=int, metavar='N', help='input height to which the images will be resized')
   parser.add_argument('--input-width', default=256, type=int, metavar='N', help='input width to which the images will be resized')
 
+  parser.add_argument('--visdom-port', default=10000, type=int, help='visdom port to use')
   parser.add_argument('--threaded-plotter', default="True", type=str2bool, help='whether to use a plotter in an independent thread (to not lock training when producing plotting)')
   parser.add_argument('--use-knn-normals', default="True", type=str2bool, help='whether to use knn-normals if set to True or normals computed with the closest two pixels in image space')
 
-  parser.add_argument('--augment-focal', default="False", type=str2bool, help='whether to use focal augmentation (if True) or the dataset focal ranges')
+  parser.add_argument('--augment-focal', default="True", type=str2bool, help='whether to use focal augmentation (if True) or the dataset focal ranges')
   parser.add_argument('--min-fov', default=30, type=float, help='min focal to use if augment_focal. Maximum is set to to maximum of the dataset')
 
   parser.add_argument('--coords-weight', default=1, type=float)
@@ -49,10 +53,11 @@ def create_parser():
   parser.add_argument('-b', '--batch-size-per-gpu', default=10, type=int, metavar='N', help='mini-batch size')
   parser.add_argument('--lr', '--learning-rate', default=1e-3, type=float, metavar='LR', help='initial learning rate')
 
-  parser.add_argument('--plot-examples-freq', default=20, type=int, metavar='N', help='print frequency')
+  parser.add_argument('--plot-examples-freq', default=50, type=int, metavar='N', help='print frequency')
 
   parser.add_argument('--continue-training-path', dest='continue_training_path', default='', help='path to continue training a previous model. reloads optimizer and nets. if unset, trains from init.')
   parser.add_argument('--restart-optimization', default="False", type=str2bool, help='whether to restart the optimization or reload the optimizer from the checkpoint')
+  parser.add_argument('--use-cache', default="True", type=str2bool)
 
   parser.add_argument('--seed', default=1337, type=int, help='seed for random functions, and network initialization')
   parser.add_argument('-d', '--debug', type=str2bool, default='False', help='debug mode')
@@ -231,7 +236,9 @@ def predict_on_images(images, depth_and_params, args):
 
 
 def main():
-  global args, best_error, n_iter_train, n_iter_val, gpus
+  global args, best_error, n_iter_train, n_iter_val, gpus, global_vis
+
+  global_vis['vis'] = instantiate_visdom(args.visdom_port)
 
   torch.manual_seed(args.seed)
   random.seed(args.seed)
@@ -245,8 +252,8 @@ def main():
   args.batch_size = len(gpus) * args.batch_size_per_gpu
 
   save_path = Path('regression_train_{}_w_{}_h_{}_bs_{}_lr_{}_{}_cw_{}_nw_{}'.format(timestamp, args.input_width, args.input_height, args.batch_size,
-                                                                                                 args.lr, get_hostname(),
-                                                                                                 args.coords_weight, args.normals_weight))
+                                                                                     args.lr, get_hostname(),
+                                                                                     args.coords_weight, args.normals_weight))
   if args.augment_focal:
     save_path = save_path + '_af_min_fov_{}'.format(args.min_fov)
 
@@ -291,7 +298,8 @@ def main():
                            'width': args.input_width,
                            'use_scannet': True,
                            'use_knn_normals': args.use_knn_normals,
-                           'focal_augmentation': args.augment_focal}
+                           'focal_augmentation': args.augment_focal,
+                           'cache_results': args.use_cache}
 
   dataset_train = MixedDataset(split='train', **common_train_val_args)
   dataset_val = MixedDataset(split='val', **common_train_val_args)

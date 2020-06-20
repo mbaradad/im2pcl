@@ -2,12 +2,13 @@ import scipy.io as sio
 from tqdm import tqdm
 from transforms3d.euler import mat2euler
 
-from my_python_utils.common_utils import *
 from paths import *
 
 META_3D_PATH = SUNRGBD_PATH + '/meta3d.pckl'
 POSE_STATS_PATH = SUNRGBD_PATH + '/pose_stats.pckl'
 
+from utils.geom_utils import *
+from utils.visdom_utils import *
 
 def getSUNRGBDDirectoryList(path):
   directoryList = []
@@ -346,7 +347,7 @@ class SUNRGBDWorld():
                        intrinsics=intrinsics,
                        intrinsics_inv=intrinsics_inv,
                        world_normals=np.array(world_normals),
-                       normals_mask=np.array(normals_mask * 1.0, dtype='float32'),
+                       normals_mask=np.array(normals_mask[0] * 1.0, dtype='float32'),
                        pcl=np.array(pcl, dtype='float32'),
                        world_pcl=np.array(world_pcl, dtype='float32'),
                        params=np.array(params, dtype='float32'),
