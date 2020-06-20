@@ -270,7 +270,7 @@ def main():
   else:
     args.env = str(env)
     args.pycharm_run = False
-    args.save_path = 'checkpoints/eccv' / env
+    args.save_path = 'checkpoints/' / env
     args.train_size > 100
     args.val_size > 50
     assert not args.debug
