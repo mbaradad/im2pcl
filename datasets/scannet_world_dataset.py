@@ -424,6 +424,7 @@ def compute_normals_knn(parallel=True):
   dataset_knn_samples = set(ScannetWorld(240, 320, 'all', knn_normals=True).samples)
 
   missing_samples = list(original_samples.difference(dataset_knn_samples))
+  print("Computing knn normals for {} of {}".format(len(missing_samples), len(original_samples)))
 
   if len(missing_samples) == 0:
     return

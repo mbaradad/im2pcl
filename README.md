@@ -30,8 +30,8 @@ To test the provided checkpoints download and unzip them from [here](https://dri
 
 Then, to test a single image, run a visdom server (for pointcloud visualizatioons) and use the command:
 ```
-python -m visdom.server -port 1000
-python test.py --visdom-port 1000 --img assets/test.jpg
+python -m visdom.server -port 10000
+python test.py --visdom-port 10000 --imgs assets/test.jpg --test-path checkpoints/full_fov
 ```
 With visdom, you'll be able to get interactive visualization of the results such as:
 
@@ -51,7 +51,7 @@ Finally, edit paths.py to reflect your paths configuration.
 If you want to use knn-normals (to fully reproduce our results) you will need to precompute them, or if you don't want to you can train with nearest neighbors normals (by setting --use-knn-normals option to False).
 To precomupte the knn-normals you can run:
 ```
-python compute_knn_normals_scannet.py 
+python datasets/scannet_world_dataset.py
 ```
 Then, you can simply train as the model with.
 ```
