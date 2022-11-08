@@ -59,3 +59,15 @@ python train.py
 ```
 By default, the model will create a cache with the cannonical pointclouds obtained from Scannet, to reduce CPU usage. If you want to disable this option, 
 simply setting the --use-cache argument to False. To replicate the experiments in the paper, you will need to train with 4 gpus of at least 12GB. To select what gpus to use, you can use the --gpus argument.
+
+
+# Citation
+```
+@InProceedings{Baradad_2020_CVPR,
+  author = {Baradad, Manel and Torralba, Antonio},
+  title = {Height and Uprightness Invariance for 3D Prediction From a Single View},
+  booktitle = {Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition (CVPR)},
+  month = {June},
+  year = {2020}
+}
+```
